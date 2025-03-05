@@ -1,0 +1,107 @@
+name: Check and Deploy to NPM
+
+on:
+  push:
+    branches: 
+      - deploy
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed packages
+        id: set-matrix
+        run: |
+          if git rev-parse HEAD~1 > /dev/null 2>&1; then
+            BASE_SHA=$(git rev-parse HEAD~1)
+          else
+            BASE_SHA=$(git hash-object -t tree /dev/null)
+          fi
+          
+          HEAD_SHA=${{ github.sha }}
+          
+          echo "Comparing $BASE_SHA...$HEAD_SHA"
+          
+          PACKAGE_DIRS=$(find . -name "package.json" -not -path "*/node_modules/*" -not -path "./package.json" -exec dirname {} \; | sed 's/^\.\///')
+          
+          CHANGED_PACKAGES=()
+          
+          for dir in $PACKAGE_DIRS; do
+            if git diff --quiet $BASE_SHA $HEAD_SHA -- "$dir"; then
+              echo "No changes in $dir"
+            else
+              echo "Detected changes in $dir"
+              CHANGED_PACKAGES+=("$dir")
+            fi
+          done
+          
+          if [ ${#CHANGED_PACKAGES[@]} -eq 0 ]; then
+            echo "matrix={\"package\":[]}" >> $GITHUB_OUTPUT
+            echo "No packages changed"
+          else
+            JSON_ARRAY=$(printf '"%s",' "${CHANGED_PACKAGES[@]}" | sed 's/,$//')
+            echo "matrix={\"package\":[$JSON_ARRAY]}" >> $GITHUB_OUTPUT
+            echo "Changed packages: ${CHANGED_PACKAGES[@]}"
+          fi
+
+  build-and-publish:
+    needs: detect-changes
+    if: ${{ github.event_name == 'push' && needs.detect-changes.outputs.matrix != '{"package":[]}' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: echo matrix
+        run: echo "${{ toJson(matrix) }}"
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GHB_TOKEN }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          registry-url: 'https://registry.openjumper.cn'
+      
+      # - name: Install dependencies
+      #   run: |
+      #     cd ${{ matrix.package }}
+      #     npm ci || npm install
+      
+      - name: Build package
+        run: |
+          cd ${{ matrix.package }}
+          npm run build --if-present
+      
+      - name: Publish to NPM
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd ${{ matrix.package }}
+          
+          # 获取当前版本号
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          echo "Current version: $CURRENT_VERSION"
+          
+          # 检查当前版本是否已在 NPM registry 上发布
+          if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
+            echo "版本 $CURRENT_VERSION 已存在，尝试取消发布..."
+            npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+          fi
+
+          # 等待一段时间确保取消发布生效
+          sleep 5
+          
+          # 发布
+          npm publish --access public
