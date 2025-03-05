@@ -53,7 +53,7 @@ jobs:
 
   build-and-publish:
     needs: detect-changes
-    if: ${{ github.event_name == 'push' && needs.detect-changes.outputs.matrix != '{"package":[]}' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+    if: ${{ github.event_name == 'push' && needs.detect-changes.outputs.matrix != '{"package":[]}' && github.ref == 'refs/heads/deploy'}}
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
