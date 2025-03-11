@@ -2,6 +2,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
 
+// test
 
 // 确保 __dirname 有值，如果没有则使用当前工作目录
 const srcDir = __dirname || "";
