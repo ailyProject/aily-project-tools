@@ -70,13 +70,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'
+          node-version: '18'
           registry-url: 'https://registry.openjumper.cn'
       
-      # - name: Install dependencies
-      #   run: |
-      #     cd ${{ matrix.package }}
-      #     npm ci || npm install
+      - name: Install dependencies
+        run: |
+          cd ${{ matrix.package }}
+          npm ci || npm install
+      
+      - name: 配置 npm
+        run: |
+          npm config set fetch-timeout 600000
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
       
       - name: Build package
         run: |
