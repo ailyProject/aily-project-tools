@@ -9,7 +9,8 @@ const srcDir = __dirname || "";
 // 确保目标目录有值，空字符串会导致解压到当前目录
 let destDir = process.env.AILY_TOOLS_PATH || "";
 const _7zaPath = process.env.AILY_7ZA_PATH || "";
-const parentDir = 'esp32-arduino-libs'
+const parentDir = 'esp32-arduino-libs';
+const targetName = "esp32"
 
 // 使用传统的回调式 API 并用 Promise 包装
 function readdir(dir) {
@@ -72,15 +73,15 @@ async function extractArchives() {
                 await unpack(srcPath, destDir);
                 console.log(`已解压 ${file} 到 ${destDir}`);
 
-                // // 重命名
-                // const newName = path.basename(file, '.7z');
-                // const destPath = path.join(destDir, newName);
+                // 重命名
+                const newName = path.basename(file, '.7z');
+                const destPath = path.join(destDir, newName);
 
-                // // 将newName中的@替换为_
+                // 将newName中的@替换为_
                 // const newName2 = newName.replace('@', '_');
-                // const newPath = path.join(destDir, newName2);
-                // fs.renameSync(destPath, newPath);
-                // console.log(`已重命名 ${destPath} 为 ${newPath}`);
+                const newPath = path.join(destDir, targetName);
+                fs.renameSync(destPath, newPath);
+                console.log(`已重命名 ${destPath} 为 ${newPath}`);
 
             } catch (error) {
                 console.error(`解压 ${file} 失败:`, error);
