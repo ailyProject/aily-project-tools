@@ -19,10 +19,14 @@ jobs:
       - name: Detect changed packages
         id: set-matrix
         run: |
-          if git rev-parse HEAD~1 > /dev/null 2>&1; then
-            BASE_SHA=$(git rev-parse HEAD~1)
+          # 获取最后一次成功运行的提交SHA或默认为一个空树
+          git fetch origin refs/tags/last-deploy 2>/dev/null || true
+          if git rev-parse -q --verify refs/tags/last-deploy >/dev/null; then
+            BASE_SHA=$(git rev-parse refs/tags/last-deploy)
+            echo "Using last successful deploy tag as base: $BASE_SHA"
           else
-            BASE_SHA=$(git hash-object -t tree /dev/null)
+            echo "No last-deploy tag found, using first commit in history"
+            BASE_SHA=$(git rev-list --max-parents=0 HEAD)
           fi
           
           HEAD_SHA=${{ github.sha }}
@@ -34,11 +38,14 @@ jobs:
           CHANGED_PACKAGES=()
           
           for dir in $PACKAGE_DIRS; do
-            if git diff --quiet $BASE_SHA $HEAD_SHA -- "$dir"; then
+            if git diff --quiet --diff-filter=ACMRT $BASE_SHA $HEAD_SHA -- "$dir"; then
               echo "No changes in $dir"
             else
               echo "Detected changes in $dir"
-              CHANGED_PACKAGES+=("$dir")
+              # Only add first-level directories (no slashes in the path)
+               if [[ "$dir" != *"/"* ]]; then
+                 CHANGED_PACKAGES+=("$dir")
+               fi
             fi
           done
           
@@ -70,7 +77,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'
+          node-version: '18'
           registry-url: 'https://registry.openjumper.cn'
       
       # - name: Install dependencies
@@ -105,3 +112,19 @@ jobs:
           
           # 发布
           npm publish --access public
+  
+  update-last-deploy-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GHB_TOKEN }}
+
+      # 添加此步骤作为工作流的最后一步
+      - name: Update last deploy tag
+        if: success()
+        run: |
+          git tag -f last-deploy ${{ github.sha }}
+          git push -f origin last-deploy
