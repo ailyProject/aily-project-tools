@@ -120,6 +120,12 @@ jobs:
           npm publish --access public
   
   update-last-deploy-tag:
+    needs: [detect-changes, build-and-publish]
+    # 当build-and-publish成功运行时，或者当没有变更需要发布时运行
+    if: |
+      always() && 
+      (needs.build-and-publish.result == 'success' || 
+      (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.matrix == '{"package":[]}'))
     runs-on: ubuntu-latest
 
     steps:
@@ -128,9 +134,7 @@ jobs:
         with:
           token: ${{ secrets.GHB_TOKEN }}
 
-      # 添加此步骤作为工作流的最后一步
       - name: Update last deploy tag
-        if: success()
         run: |
           git tag -f last-deploy ${{ github.sha }}
           git push -f origin last-deploy
