@@ -9,7 +9,7 @@ const srcDir = __dirname || "";
 // 确保目标目录有值，空字符串会导致解压到当前目录
 let destDir = process.env.AILY_TOOLS_PATH || "";
 const _7zaPath = process.env.AILY_7ZA_PATH || "";
-const parentDir = 'esp32-arduino-libs@5.3.0';
+const parentDir = 'esp32-arduino-libs@5.4.0';
 const targetName = "esp32c3"
 
 // 使用传统的回调式 API 并用 Promise 包装
@@ -80,6 +80,10 @@ async function extractArchives() {
                 // 将newName中的@替换为_
                 // const newName2 = newName.replace('@', '_');
                 const newPath = path.join(destDir, targetName);
+                if (fs.existsSync(newPath)) {
+                    console.log(`目标路径已存在: ${newPath}`);
+                    continue;
+                }
                 fs.renameSync(destPath, newPath);
                 console.log(`已重命名 ${destPath} 为 ${newPath}`);
 
