@@ -18,6 +18,27 @@ function readdir(dir) {
     });
 }
 
+// 重试函数封装
+async function withRetry(fn, maxRetries = 3, retryDelay = 1000) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+            console.log(`操作失败 (尝试 ${attempt}/${maxRetries}): ${error.message}`);
+
+            if (attempt < maxRetries) {
+                console.log(`等待 ${retryDelay / 1000} 秒后重试...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+            }
+        }
+    }
+
+    throw new Error(`经过 ${maxRetries} 次尝试后操作仍然失败: ${lastError.message}`);
+}
+
 // 使用 Promise 和 async/await 简化异步操作
 async function extractArchives() {
     try {
@@ -61,7 +82,9 @@ async function extractArchives() {
             console.log(`准备解压: ${srcPath}`);
 
             try {
-                await unpack(srcPath, destDir);
+                await withRetry(async () => {
+                    await unpack(srcPath, destDir);
+                }, 3, 2000); // 最多重试3次，每次间隔2秒
                 console.log(`已解压 ${file} 到 ${destDir}`);
 
                 // // 重命名
