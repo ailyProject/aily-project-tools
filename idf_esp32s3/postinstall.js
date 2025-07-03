@@ -43,6 +43,51 @@ async function withRetry(fn, maxRetries = 3, retryDelay = 1000) {
     throw new Error(`经过 ${maxRetries} 次尝试后操作仍然失败: ${lastError.message}`);
 }
 
+// 检查并删除旧版本文件夹
+async function checkAndRemoveOldVersions(baseDir, parentDir) {
+    try {
+        if (!fs.existsSync(baseDir)) {
+            return;
+        }
+
+        // 从parentDir中提取基础名称（去掉版本号）
+        const baseName = parentDir.split('@')[0]; // 例如：esp32-arduino-libs@5.4.0 -> esp32-arduino-libs
+        
+        console.log(`检查 ${baseDir} 目录下是否存在 ${baseName} 的旧版本...`);
+
+        const files = await readdir(baseDir);
+        
+        // 查找所有以baseName开头且包含@的文件夹
+        const oldVersionFolders = files.filter(file => {
+            const filePath = path.join(baseDir, file);
+            return fs.statSync(filePath).isDirectory() && 
+                   file.startsWith(baseName + '@') && 
+                   file !== parentDir;
+        });
+
+        if (oldVersionFolders.length > 0) {
+            console.log(`找到 ${oldVersionFolders.length} 个旧版本文件夹:`);
+            
+            for (const folder of oldVersionFolders) {
+                const folderPath = path.join(baseDir, folder);
+                console.log(`删除旧版本文件夹: ${folderPath}`);
+                
+                try {
+                    fs.rmSync(folderPath, { recursive: true, force: true });
+                    console.log(`已删除: ${folderPath}`);
+                } catch (error) {
+                    console.error(`删除 ${folderPath} 失败:`, error);
+                }
+            }
+        } else {
+            console.log('未找到旧版本文件夹');
+        }
+    } catch (error) {
+        console.error('检查旧版本文件夹时出错:', error);
+    }
+}
+
+
 // 使用 Promise 和 async/await 简化异步操作
 async function extractArchives() {
     try {
@@ -64,8 +109,9 @@ async function extractArchives() {
             return;
         }
 
-        // 如果parentDir不为空，则将其添加到目标路径
+        // 检查并删除旧版本文件夹
         if (parentDir && parentDir.trim() !== '') {
+            await checkAndRemoveOldVersions(destDir, parentDir);
             destDir = path.join(destDir, parentDir);
         }
 
@@ -103,9 +149,10 @@ async function extractArchives() {
                 // 将newName中的@替换为_
                 // const newName2 = newName.replace('@', '_');
                 const newPath = path.join(destDir, targetName);
+                // 如果目标路径已存在，先删除
                 if (fs.existsSync(newPath)) {
-                    console.log(`目标路径已存在: ${newPath}`);
-                    continue;
+                    console.log(`目标路径已存在，删除: ${newPath}`);
+                    fs.rmSync(newPath, { recursive: true, force: true });
                 }
                 fs.renameSync(destPath, newPath);
                 console.log(`已重命名 ${destPath} 为 ${newPath}`);
