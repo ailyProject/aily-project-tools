@@ -1,6 +1,6 @@
 {
   "name": "@aily-project/tool-esptool_py",
-  "version": "4.8.1",
+  "version": "5.1.0",
   "description": "",
   "main": "index.js",
   "scripts": {
