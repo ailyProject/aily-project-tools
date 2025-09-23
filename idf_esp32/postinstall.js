@@ -255,7 +255,7 @@ async function extractArchives() {
 
         // 检查并删除旧版本文件夹
         if (parentDir && parentDir.trim() !== '') {
-            await checkAndRemoveOldVersions(destDir, parentDir);
+            // await checkAndRemoveOldVersions(destDir, parentDir);
             destDir = path.join(destDir, parentDir);
         }
 
