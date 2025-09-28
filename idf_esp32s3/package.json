@@ -1,6 +1,6 @@
 {
   "name": "@aily-project/tool-idf_esp32s3",
-  "version": "5.5.1",
+  "version": "5.4.1",
   "description": "",
   "main": "index.js",
   "scripts": {
