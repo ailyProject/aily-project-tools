@@ -5,8 +5,9 @@ const path = require('path');
 const srcDir = __dirname || "";
 // 确保目标目录有值，空字符串会导致解压到当前目录
 let destDir = process.env.AILY_TOOLS_PATH || "";
-const parentDir = 'esp32-arduino-libs@5.4.0';
-const targetName = "esp32c3";
+const packageJson = require('./package.json');
+const parentDir = `esp32-arduino-libs@${packageJson.version}`;
+const targetName = "esp32h2";
 
 // 使用传统的回调式 API 并用 Promise 包装
 function readdir(dir) {

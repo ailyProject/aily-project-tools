@@ -13,7 +13,7 @@ const _7zaPath = process.env.AILY_7ZA_PATH || "";
 const zipDownloadBaseUrl = process.env.AILY_ZIP_URL + '/tools';
 const packageJson = require('./package.json');
 const parentDir = `esp32-arduino-libs@${packageJson.version}`;
-const targetName = "esp32c3"
+const targetName = "esp32h2"
 
 function getZipFileName() {
     // 读取package.json文件，获取name和version
