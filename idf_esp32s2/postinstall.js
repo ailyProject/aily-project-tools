@@ -7,35 +7,17 @@ const os = require('os');
 // 获取当前操作系统类型
 function getOSType() {
     const platform = os.platform();
-    const arch = os.arch();
+    let arch = os.arch();
 
-    let osType = '';
-    switch (platform) {
-        case 'win32':
-            osType = 'Windows';
-            break;
-        case 'darwin':
-            osType = 'macOS';
-            break;
-        case 'linux':
-            osType = 'Linux';
-            break;
-        case 'freebsd':
-            osType = 'FreeBSD';
-            break;
-        case 'openbsd':
-            osType = 'OpenBSD';
-            break;
-        case 'sunos':
-            osType = 'SunOS';
-            break;
-        default:
-            osType = platform;
+    // 根据arch判断是intel还是arm架构
+    if (arch.startsWith('arm')) {
+        arch = 'arm';
+    } else {
+        arch = 'intel';
     }
 
     return {
         platform: platform,
-        type: osType,
         arch: arch,
         release: os.release(),
         version: os.version ? os.version() : 'N/A'
