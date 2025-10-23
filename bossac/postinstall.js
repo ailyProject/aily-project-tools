@@ -2,8 +2,33 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
 const https = require('https');
+const os = require('os');
 
-// test
+// 获取当前操作系统类型
+function getOSType() {
+    const platform = os.platform();
+    let arch = os.arch();
+
+    // 根据arch判断是intel还是arm架构
+    if (arch.startsWith('arm')) {
+        arch = 'arm';
+    } else {
+        arch = 'intel';
+    }
+
+    return {
+        platform: platform,
+        arch: arch,
+        release: os.release(),
+        version: os.version ? os.version() : 'N/A'
+    };
+}
+
+function getZipBaseUrl() {
+    const osInfo = getOSType();
+    const baseUrl = process.env.AILY_ZIP_URL || '';
+    return `${baseUrl}/tools/${osInfo.platform}/${osInfo.arch}`;
+}
 
 
 // 确保 __dirname 有值，如果没有则使用当前工作目录
@@ -11,7 +36,7 @@ const srcDir = __dirname || "";
 // 确保目标目录有值，空字符串会导致解压到当前目录
 const destDir = process.env.AILY_TOOLS_PATH || "";
 const _7zaPath = process.env.AILY_7ZA_PATH || "";
-const zipDownloadBaseUrl = process.env.AILY_ZIP_URL + '/tools';
+const zipDownloadBaseUrl = getZipBaseUrl();
 
 
 // 重试函数封装
@@ -207,11 +232,11 @@ async function extractArchives() {
             console.log(`已解压 ${fileName} 到 ${destDir}`);
 
             // 解压成功后重命名文件夹（将@替换为_）
-            try {
-                await renameExtractedFolder(fileName, destDir);
-            } catch (renameErr) {
-                throw new Error(`重命名文件夹失败: ${renameErr.message}`);
-            }
+            // try {
+            //     await renameExtractedFolder(fileName, destDir);
+            // } catch (renameErr) {
+            //     throw new Error(`重命名文件夹失败: ${renameErr.message}`);
+            // }
 
             // 解压成功后可以删除压缩文件
             // fs.unlinkSync(zipFilePath);
