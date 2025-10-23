@@ -2,15 +2,58 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
 const https = require('https');
+const os = require('os');
 
-// test
+// 获取当前操作系统类型
+function getOSType() {
+    const platform = os.platform();
+    const arch = os.arch();
+
+    let osType = '';
+    switch (platform) {
+        case 'win32':
+            osType = 'Windows';
+            break;
+        case 'darwin':
+            osType = 'macOS';
+            break;
+        case 'linux':
+            osType = 'Linux';
+            break;
+        case 'freebsd':
+            osType = 'FreeBSD';
+            break;
+        case 'openbsd':
+            osType = 'OpenBSD';
+            break;
+        case 'sunos':
+            osType = 'SunOS';
+            break;
+        default:
+            osType = platform;
+    }
+
+    return {
+        platform: platform,
+        type: osType,
+        arch: arch,
+        release: os.release(),
+        version: os.version ? os.version() : 'N/A'
+    };
+}
+
+function getZipBaseUrl() {
+    const osInfo = getOSType();
+    const baseUrl = process.env.AILY_ZIP_URL || '';
+    return `${baseUrl}/tools/${osInfo.platform}/${osInfo.arch}`;
+}
 
 // 确保 __dirname 有值，如果没有则使用当前工作目录
 const srcDir = __dirname || "";
 // 确保目标目录有值，空字符串会导致解压到当前目录
 let destDir = process.env.AILY_TOOLS_PATH || "";
 const _7zaPath = process.env.AILY_7ZA_PATH || "";
-const zipDownloadBaseUrl = process.env.AILY_ZIP_URL + '/tools';
+const zipDownloadBaseUrl = getZipBaseUrl();
 const packageJson = require('./package.json');
 const parentDir = `esp32-arduino-libs@${packageJson.version}`;
 const targetName = "esp32p4"
