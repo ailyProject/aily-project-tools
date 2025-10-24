@@ -1,6 +1,6 @@
 {
-  "name": "@aily-project/tool-CMSIS",
-  "version": "5.7.0",
+  "name": "@aily-project/tool-adafruit-nrfutil",
+  "version": "1.7.0",
   "description": "",
   "main": "index.js",
   "scripts": {
