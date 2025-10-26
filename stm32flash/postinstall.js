@@ -231,11 +231,11 @@ async function extractArchives() {
             console.log(`已解压 ${fileName} 到 ${destDir}`);
 
             // 解压成功后重命名文件夹（将@替换为_）
-            try {
-                await renameExtractedFolder(fileName, destDir);
-            } catch (renameErr) {
-                throw new Error(`重命名文件夹失败: ${renameErr.message}`);
-            }
+            // try {
+            //     await renameExtractedFolder(fileName, destDir);
+            // } catch (renameErr) {
+            //     throw new Error(`重命名文件夹失败: ${renameErr.message}`);
+            // }
 
             // 解压成功后可以删除压缩文件
             // fs.unlinkSync(zipFilePath);
