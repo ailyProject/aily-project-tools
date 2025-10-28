@@ -324,22 +324,28 @@ async function extractArchives() {
 
         // 解压zip文件
         try {
+            const newPath = path.join(destDir, targetName);
+            
+            // 如果目标路径已存在，先删除
+            if (fs.existsSync(newPath)) {
+                console.log(`删除旧文件夹: ${newPath}`);
+                fs.rmSync(newPath, { recursive: true, force: true });
+            }
+
             await withRetry(async () => {
                 await unpack(zipFilePath, destDir);
             }, 3, 2000); // 最多重试3次，每次间隔2秒
             console.log(`已解压 ${fileName} 到 ${destDir}`);
 
+            if (fs.existsSync(newPath)) {
+                console.log(`目标文件夹已存在: ${newPath}`);
+                return;
+            }
+
             // 重命名 - 保留原有的重命名逻辑
             const newName = path.basename(fileName, '.7z');
             const destPath = path.join(destDir, newName);
-            const newPath = path.join(destDir, targetName);
-
-            // 如果目标路径已存在，先删除
-            if (fs.existsSync(newPath)) {
-                console.log(`目标路径已存在，删除: ${newPath}`);
-                fs.rmSync(newPath, { recursive: true, force: true });
-            }
-
+            
             if (fs.existsSync(destPath)) {
                 fs.renameSync(destPath, newPath);
                 console.log(`已重命名 ${destPath} 为 ${newPath}`);
