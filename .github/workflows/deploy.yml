@@ -111,6 +111,38 @@ jobs:
           cd ${{ matrix.package }}
           npm run build --if-present
       
+      - name: Publish to Other NPM
+        if: steps.check-update-all.outputs.should_skip != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_2 }}
+        run: |
+          cd ${{ matrix.package }}
+          
+          REGISTRY_URL="${{ secrets.REGISTRY_URL_2 }}"
+          # Remove protocol http:// or https://
+          REGISTRY_DOMAIN=$(echo "$REGISTRY_URL" | sed -E 's|^\w+://||' | sed -E 's|/.*||')
+          
+          echo "Configuring registry: $REGISTRY_URL"
+          
+          npm config set registry "$REGISTRY_URL"
+          npm config set "//$REGISTRY_DOMAIN/:_authToken" "${{ secrets.NPM_TOKEN_2 }}"
+          
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          echo "Current version: $CURRENT_VERSION"
+          
+          if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
+            echo "Version $CURRENT_VERSION exists on other registry, unpublishing..."
+            npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+          fi
+
+          sleep 5
+          
+          npm publish --access public
+          
+          # Restore original registry
+          npm config set registry "${{ secrets.REGISTRY_URL }}"
+
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_skip != 'true'
         env:
@@ -160,6 +192,46 @@ jobs:
         with:
           node-version: '18'
           registry-url: ${{ secrets.REGISTRY_URL }}
+
+      - name: Publish to Other NPM
+        if: steps.check-update-all.outputs.should_run == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_2 }}
+        run: |
+          REGISTRY_URL="${{ secrets.REGISTRY_URL_2 }}"
+          REGISTRY_DOMAIN=$(echo "$REGISTRY_URL" | sed -E 's|^\w+://||' | sed -E 's|/.*||')
+          
+          npm config set registry "$REGISTRY_URL"
+          npm config set "//$REGISTRY_DOMAIN/:_authToken" "${{ secrets.NPM_TOKEN_2 }}"
+          
+          PACKAGE_DIRS=$(find . -name "package.json" -not -path "*/node_modules/*" -not -path "./package.json" -exec dirname {} \; | sed 's/^\.\///')
+          
+          FIRST_LEVEL_DIRS=()
+          for dir in $PACKAGE_DIRS; do
+            if [[ "$dir" != *"/"* ]]; then
+              FIRST_LEVEL_DIRS+=("$dir")
+            fi
+          done
+          
+          for dir in "${FIRST_LEVEL_DIRS[@]}"; do
+            if [ ! -d "$dir" ]; then
+              continue
+            fi
+            cd $dir
+            
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+            PACKAGE_NAME=$(node -p "require('./package.json').name")
+            
+            if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
+              npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+            fi
+
+            sleep 5
+            npm publish --access public
+            cd ..
+          done
+          
+          npm config set registry "${{ secrets.REGISTRY_URL }}"
       
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_run == 'true'
