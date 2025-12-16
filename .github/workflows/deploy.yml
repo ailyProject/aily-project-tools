@@ -111,37 +111,47 @@ jobs:
           cd ${{ matrix.package }}
           npm run build --if-present
       
-      - name: Publish to Other NPM
+      - name: Publish to Registry 2
         if: steps.check-update-all.outputs.should_skip != 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_2 }}
+          REGISTRY_2: ${{ secrets.REGISTRY_URL_2 }}
+          TOKEN_2: ${{ secrets.NPM_TOKEN_2 }}
         run: |
+          if [ -z "$REGISTRY_2" ] || [ -z "$TOKEN_2" ]; then
+            echo "Registry 2 secrets not set, skipping."
+            exit 0
+          fi
+
           cd ${{ matrix.package }}
-          
-          REGISTRY_URL="${{ secrets.REGISTRY_URL_2 }}"
-          # Remove protocol http:// or https://
-          REGISTRY_DOMAIN=$(echo "$REGISTRY_URL" | sed -E 's|^\w+://||' | sed -E 's|/.*||')
-          
-          echo "Configuring registry: $REGISTRY_URL"
-          
-          npm config set registry "$REGISTRY_URL"
-          npm config set "//$REGISTRY_DOMAIN/:_authToken" "${{ secrets.NPM_TOKEN_2 }}"
           
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           PACKAGE_NAME=$(node -p "require('./package.json').name")
           echo "Current version: $CURRENT_VERSION"
-          
-          if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
-            echo "Version $CURRENT_VERSION exists on other registry, unpublishing..."
-            npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
-          fi
 
-          sleep 5
+          echo "----------------------------------------"
+          echo "Processing second registry: $REGISTRY_2"
           
+          # 去掉协议头获取 host
+          REGISTRY_2_NO_PROTO=$(echo "$REGISTRY_2" | sed 's/^https\?:\/\///')
+          # 去掉可能存在的尾部斜杠
+          REGISTRY_2_NO_PROTO=$(echo "$REGISTRY_2_NO_PROTO" | sed 's/\/$//')
+          
+          # 在当前目录生成 .npmrc，确保优先级最高且配置准确
+          echo "registry=$REGISTRY_2" > .npmrc
+          echo "//$REGISTRY_2_NO_PROTO/:_authToken=$TOKEN_2" >> .npmrc
+          
+          # 检查是否存在
+          if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
+             echo "Version $CURRENT_VERSION exists on $REGISTRY_2, unpublishing..."
+             npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+             sleep 5
+          fi
+          
+          # 发布
           npm publish --access public
           
-          # Restore original registry
-          npm config set registry "${{ secrets.REGISTRY_URL }}"
+          # 清理临时配置文件
+          rm .npmrc
 
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_skip != 'true'
@@ -181,7 +191,7 @@ jobs:
           fi
   
       - name: Checkout code
-        if: steps.check-update-all.outputs.should_run == 'true'
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/deploy' && steps.check-update-all.outputs.should_run == 'true' }}
         uses: actions/checkout@v3
         with:
           token: ${{ secrets.GHB_TOKEN }}
@@ -193,19 +203,28 @@ jobs:
           node-version: '18'
           registry-url: ${{ secrets.REGISTRY_URL }}
 
-      - name: Publish to Other NPM
+      - name: Publish All to Registry 2
         if: steps.check-update-all.outputs.should_run == 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_2 }}
+          REGISTRY_2: ${{ secrets.REGISTRY_URL_2 }}
+          TOKEN_2: ${{ secrets.NPM_TOKEN_2 }}
         run: |
-          REGISTRY_URL="${{ secrets.REGISTRY_URL_2 }}"
-          REGISTRY_DOMAIN=$(echo "$REGISTRY_URL" | sed -E 's|^\w+://||' | sed -E 's|/.*||')
+          if [ -z "$REGISTRY_2" ] || [ -z "$TOKEN_2" ]; then
+            echo "Registry 2 secrets not set, skipping."
+            exit 0
+          fi
+
+          REGISTRY_2_NO_PROTO=$(echo "$REGISTRY_2" | sed 's/^https\?:\/\///')
+          # 去掉可能存在的尾部斜杠
+          REGISTRY_2_NO_PROTO=$(echo "$REGISTRY_2_NO_PROTO" | sed 's/\/$//')
           
-          npm config set registry "$REGISTRY_URL"
-          npm config set "//$REGISTRY_DOMAIN/:_authToken" "${{ secrets.NPM_TOKEN_2 }}"
-          
+          # 在当前目录生成 .npmrc
+          echo "registry=$REGISTRY_2" > .npmrc
+          echo "//$REGISTRY_2_NO_PROTO/:_authToken=$TOKEN_2" >> .npmrc
+
           PACKAGE_DIRS=$(find . -name "package.json" -not -path "*/node_modules/*" -not -path "./package.json" -exec dirname {} \; | sed 's/^\.\///')
-          
+          echo "Found packages: $PACKAGE_DIRS"
+          # 仅保留一级目录
           FIRST_LEVEL_DIRS=()
           for dir in $PACKAGE_DIRS; do
             if [[ "$dir" != *"/"* ]]; then
@@ -213,31 +232,39 @@ jobs:
             fi
           done
           
+          echo "要发布的一级目录包: ${FIRST_LEVEL_DIRS[*]}"
+          
           for dir in "${FIRST_LEVEL_DIRS[@]}"; do
             if [ ! -d "$dir" ]; then
+              echo "目录 $dir 不存在，跳过..."
               continue
             fi
             cd $dir
-            
+            echo "发布 $dir 到 Registry 2"
             CURRENT_VERSION=$(node -p "require('./package.json').version")
             PACKAGE_NAME=$(node -p "require('./package.json').name")
+            echo "当前版本: $CURRENT_VERSION"
             
             if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
-              npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+               echo "Version $CURRENT_VERSION exists on $REGISTRY_2, unpublishing..."
+               npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+               sleep 5
             fi
-
-            sleep 5
             npm publish --access public
             cd ..
           done
           
-          npm config set registry "${{ secrets.REGISTRY_URL }}"
+          # 清理
+          rm .npmrc
       
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_run == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          # 确保清理掉可能残留的 .npmrc
+          rm -f .npmrc
+
           PACKAGE_DIRS=$(find . -name "package.json" -not -path "*/node_modules/*" -not -path "./package.json" -exec dirname {} \; | sed 's/^\.\///')
           echo "Found packages: $PACKAGE_DIRS"
           # 仅保留一级目录
