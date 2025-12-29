@@ -2,6 +2,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 const os = require('os');
 
 // 获取当前操作系统类型
@@ -65,7 +66,32 @@ function getZipFile() {
 
         const fileStream = fs.createWriteStream(filePath);
 
-        https.get(downloadUrl, (response) => {
+        // 根据 URL 协议选择 http 或 https 模块
+        const httpModule = downloadUrl.startsWith('https://') ? https : http;
+
+        httpModule.get(downloadUrl, (response) => {
+            // 处理重定向
+            if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+                fileStream.close();
+                fs.unlink(filePath, () => { });
+                // 递归处理重定向
+                const redirectUrl = response.headers.location;
+                console.log(`重定向到: ${redirectUrl}`);
+                const redirectModule = redirectUrl.startsWith('https://') ? https : http;
+                redirectModule.get(redirectUrl, handleResponse).on('error', handleError);
+                return;
+            }
+
+            handleResponse(response);
+        }).on('error', handleError);
+
+        function handleError(err) {
+            fileStream.close();
+            fs.unlink(filePath, () => { });
+            reject(err);
+        }
+
+        function handleResponse(response) {
             if (response.statusCode !== 200) {
                 fileStream.close();
                 fs.unlink(filePath, () => { });
@@ -99,23 +125,77 @@ function getZipFile() {
             response.pipe(fileStream);
 
             fileStream.on('finish', () => {
-                fileStream.close();
-                // 输出换行，确保后续日志正常显示
-                if (totalSize > 0) {
-                    console.log('');
-                }
-                console.log(`成功下载 ${zipFileName}`);
-                resolve(zipFileName);
+                fileStream.close(() => {
+                    // 输出换行，确保后续日志正常显示
+                    if (totalSize > 0) {
+                        console.log('');
+                    }
+
+                    // 文件落盘检查：确保文件已正确写入磁盘
+                    verifyFileOnDisk(filePath, totalSize, downloadedSize)
+                        .then(() => {
+                            console.log(`成功下载 ${zipFileName}`);
+                            resolve(zipFileName);
+                        })
+                        .catch((verifyErr) => {
+                            fs.unlink(filePath, () => { });
+                            reject(verifyErr);
+                        });
+                });
             });
 
             fileStream.on('error', (err) => {
                 fs.unlink(filePath, () => { });
                 reject(err);
             });
-        }).on('error', (err) => {
-            fs.unlink(filePath, () => { });
-            reject(err);
-        });
+        }
+    });
+}
+
+// 验证文件是否正确落盘
+function verifyFileOnDisk(filePath, expectedSize, downloadedSize) {
+    return new Promise((resolve, reject) => {
+        // 等待一小段时间确保文件系统同步
+        setTimeout(() => {
+            try {
+                // 检查文件是否存在
+                if (!fs.existsSync(filePath)) {
+                    reject(new Error(`文件落盘验证失败: 文件不存在 ${filePath}`));
+                    return;
+                }
+
+                // 获取文件状态
+                const stats = fs.statSync(filePath);
+
+                // 检查文件大小是否与下载的字节数一致
+                if (stats.size !== downloadedSize) {
+                    reject(new Error(`文件落盘验证失败: 文件大小不匹配 (期望: ${downloadedSize} 字节, 实际: ${stats.size} 字节)`));
+                    return;
+                }
+
+                // 如果服务器提供了 Content-Length，验证是否匹配
+                if (expectedSize > 0 && stats.size !== expectedSize) {
+                    reject(new Error(`文件落盘验证失败: 文件大小与服务器声明不匹配 (期望: ${expectedSize} 字节, 实际: ${stats.size} 字节)`));
+                    return;
+                }
+
+                // 尝试读取文件头部，确保文件可读
+                const fd = fs.openSync(filePath, 'r');
+                const buffer = Buffer.alloc(Math.min(1024, stats.size));
+                const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+                fs.closeSync(fd);
+
+                if (bytesRead === 0 && stats.size > 0) {
+                    reject(new Error(`文件落盘验证失败: 无法读取文件内容`));
+                    return;
+                }
+
+                console.log(`文件落盘验证通过: ${stats.size} 字节`);
+                resolve();
+            } catch (err) {
+                reject(new Error(`文件落盘验证失败: ${err.message}`));
+            }
+        }, 100); // 等待 100ms 确保文件系统同步
     });
 }
 
@@ -217,26 +297,26 @@ async function checkAndRemoveOldVersions(baseDir, parentDir) {
 
         // 从parentDir中提取基础名称（去掉版本号）
         const baseName = parentDir.split('@')[0]; // 例如：esp32-arduino-libs@5.4.0 -> esp32-arduino-libs
-
+        
         console.log(`检查 ${baseDir} 目录下是否存在 ${baseName} 的旧版本...`);
 
         const files = await readdir(baseDir);
-
+        
         // 查找所有以baseName开头且包含@的文件夹
         const oldVersionFolders = files.filter(file => {
             const filePath = path.join(baseDir, file);
-            return fs.statSync(filePath).isDirectory() &&
-                file.startsWith(baseName + '@') &&
-                file !== parentDir;
+            return fs.statSync(filePath).isDirectory() && 
+                   file.startsWith(baseName + '@') && 
+                   file !== parentDir;
         });
 
         if (oldVersionFolders.length > 0) {
             console.log(`找到 ${oldVersionFolders.length} 个旧版本文件夹:`);
-
+            
             for (const folder of oldVersionFolders) {
                 const folderPath = path.join(baseDir, folder);
                 console.log(`删除旧版本文件夹: ${folderPath}`);
-
+                
                 try {
                     fs.rmSync(folderPath, { recursive: true, force: true });
                     console.log(`已删除: ${folderPath}`);
@@ -282,6 +362,13 @@ async function extractArchives() {
         if (parentDir && parentDir.trim() !== '') {
             // await checkAndRemoveOldVersions(destDir, parentDir);
             destDir = path.join(destDir, parentDir);
+        }
+
+        // 检查目标目录是否已存在（已安装），如果已安装则跳过
+        const targetPath = path.join(destDir, targetName);
+        if (fs.existsSync(targetPath)) {
+            console.log(`目标目录已存在，跳过安装: ${targetPath}`);
+            return;
         }
 
         if (!fs.existsSync(destDir)) {
@@ -364,7 +451,6 @@ async function extractArchives() {
         process.exit(1);
     }
 }
-
 
 // 使用 Promise 封装解压函数
 function unpack(archivePath, destination) {
