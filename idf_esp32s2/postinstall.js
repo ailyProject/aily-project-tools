@@ -10,11 +10,13 @@ function getOSType() {
     const platform = os.platform();
     let arch = os.arch();
 
-    // 根据arch判断是intel还是arm架构
-    if (arch.startsWith('arm')) {
-        arch = 'arm';
+    // Windows 平台直接判断
+    if (platform === 'win32') {
+        arch = (arch === 'x64' || arch === 'ia32') ? 'intel' : 'arm';
     } else {
-        arch = 'intel';
+        // 其他平台（Linux、macOS等）用正则表达式
+        // 支持: arm, arm64, aarch64 等ARM变体
+        arch = arch.match(/^(arm|aarch)/i) ? 'arm' : 'intel';
     }
 
     return {
