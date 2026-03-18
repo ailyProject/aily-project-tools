@@ -20,7 +20,7 @@ jobs:
         id: set-matrix
         run: |
           # 获取最后一次成功运行的提交SHA或默认为一个空树
-          git fetch origin refs/tags/last-deploy 2>/dev/null || true
+          git fetch origin tag last-deploy --force 2>/dev/null || true
           if git rev-parse -q --verify refs/tags/last-deploy >/dev/null; then
             BASE_SHA=$(git rev-parse refs/tags/last-deploy)
             echo "Using last successful deploy tag as base: $BASE_SHA"
@@ -32,22 +32,21 @@ jobs:
           HEAD_SHA=${{ github.sha }}
           
           echo "Comparing $BASE_SHA...$HEAD_SHA"
-          
-          PACKAGE_DIRS=$(find . -name "package.json" -not -path "*/node_modules/*" -not -path "./package.json" -exec dirname {} \; | sed 's/^\.\///')
-          
-          CHANGED_PACKAGES=()
-          
-          for dir in $PACKAGE_DIRS; do
-            if git diff --quiet --diff-filter=ACMRT $BASE_SHA $HEAD_SHA -- "$dir"; then
-              echo "No changes in $dir"
-            else
-              echo "Detected changes in $dir"
-              # Only add first-level directories (no slashes in the path)
-               if [[ "$dir" != *"/"* ]]; then
-                 CHANGED_PACKAGES+=("$dir")
-               fi
-            fi
-          done
+
+          mapfile -t CHANGED_PACKAGES < <(
+            git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" |
+            awk -F/ 'NF > 1 { print $1 }' |
+            while read -r dir; do
+              if [ -f "$dir/package.json" ]; then
+                printf '%s\n' "$dir"
+              fi
+            done |
+            sort -u
+          )
+
+          if [ ${#CHANGED_PACKAGES[@]} -gt 0 ]; then
+            echo "Detected changed packages: ${CHANGED_PACKAGES[*]}"
+          fi
           
           if [ ${#CHANGED_PACKAGES[@]} -eq 0 ]; then
             echo "matrix={\"package\":[]}" >> $GITHUB_OUTPUT
@@ -117,12 +116,31 @@ jobs:
           REGISTRY_2: ${{ secrets.REGISTRY_URL_2 }}
           TOKEN_2: ${{ secrets.NPM_TOKEN_2 }}
         run: |
+          retry_with_backoff() {
+            local max_attempts="$1"
+            local sleep_seconds="$2"
+            shift 2
+            local attempt=1
+
+            until "$@"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "Command failed after ${max_attempts} attempts: $*"
+                return 1
+              fi
+              echo "Attempt ${attempt}/${max_attempts} failed. Retrying in ${sleep_seconds}s: $*"
+              sleep "$sleep_seconds"
+              attempt=$((attempt + 1))
+              sleep_seconds=$((sleep_seconds * 2))
+            done
+          }
+
           if [ -z "$REGISTRY_2" ] || [ -z "$TOKEN_2" ]; then
             echo "Registry 2 secrets not set, skipping."
             exit 0
           fi
 
           cd ${{ matrix.package }}
+          trap 'rm -f .npmrc' EXIT
           
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           PACKAGE_NAME=$(node -p "require('./package.json').name")
@@ -143,21 +161,36 @@ jobs:
           # 检查是否存在
           if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
              echo "Version $CURRENT_VERSION exists on $REGISTRY_2, unpublishing..."
-             npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+             retry_with_backoff 3 3 npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
              sleep 5
           fi
           
           # 发布
-          npm publish --access public
-          
-          # 清理临时配置文件
-          rm .npmrc
+           retry_with_backoff 5 5 npm publish --access public
 
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_skip != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          retry_with_backoff() {
+            local max_attempts="$1"
+            local sleep_seconds="$2"
+            shift 2
+            local attempt=1
+
+            until "$@"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "Command failed after ${max_attempts} attempts: $*"
+                return 1
+              fi
+              echo "Attempt ${attempt}/${max_attempts} failed. Retrying in ${sleep_seconds}s: $*"
+              sleep "$sleep_seconds"
+              attempt=$((attempt + 1))
+              sleep_seconds=$((sleep_seconds * 2))
+            done
+          }
+
           cd ${{ matrix.package }}
           
           # 获取当前版本号
@@ -168,14 +201,12 @@ jobs:
           # 检查当前版本是否已在 NPM registry 上发布
           if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
             echo "版本 $CURRENT_VERSION 已存在，尝试取消发布..."
-            npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+            retry_with_backoff 3 3 npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+            sleep 5
           fi
-
-          # 等待一段时间确保取消发布生效
-          sleep 5
           
           # 发布
-          npm publish --access public
+          retry_with_backoff 5 5 npm publish --access public
   
   build-and-publish-all:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/deploy' }}
@@ -209,10 +240,30 @@ jobs:
           REGISTRY_2: ${{ secrets.REGISTRY_URL_2 }}
           TOKEN_2: ${{ secrets.NPM_TOKEN_2 }}
         run: |
+          retry_with_backoff() {
+            local max_attempts="$1"
+            local sleep_seconds="$2"
+            shift 2
+            local attempt=1
+
+            until "$@"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "Command failed after ${max_attempts} attempts: $*"
+                return 1
+              fi
+              echo "Attempt ${attempt}/${max_attempts} failed. Retrying in ${sleep_seconds}s: $*"
+              sleep "$sleep_seconds"
+              attempt=$((attempt + 1))
+              sleep_seconds=$((sleep_seconds * 2))
+            done
+          }
+
           if [ -z "$REGISTRY_2" ] || [ -z "$TOKEN_2" ]; then
             echo "Registry 2 secrets not set, skipping."
             exit 0
           fi
+
+          trap 'rm -f .npmrc' EXIT
 
           REGISTRY_2_NO_PROTO=$(echo "$REGISTRY_2" | sed 's/^https\?:\/\///')
           # 去掉可能存在的尾部斜杠
@@ -247,21 +298,36 @@ jobs:
             
             if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
                echo "Version $CURRENT_VERSION exists on $REGISTRY_2, unpublishing..."
-               npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+              retry_with_backoff 3 3 npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
                sleep 5
             fi
-            npm publish --access public
+            retry_with_backoff 5 5 npm publish --access public
             cd ..
           done
-          
-          # 清理
-          rm .npmrc
       
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_run == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          retry_with_backoff() {
+            local max_attempts="$1"
+            local sleep_seconds="$2"
+            shift 2
+            local attempt=1
+
+            until "$@"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "Command failed after ${max_attempts} attempts: $*"
+                return 1
+              fi
+              echo "Attempt ${attempt}/${max_attempts} failed. Retrying in ${sleep_seconds}s: $*"
+              sleep "$sleep_seconds"
+              attempt=$((attempt + 1))
+              sleep_seconds=$((sleep_seconds * 2))
+            done
+          }
+
           # 确保清理掉可能残留的 .npmrc
           rm -f .npmrc
 
@@ -290,22 +356,27 @@ jobs:
             
             if npm view $PACKAGE_NAME@$CURRENT_VERSION version &> /dev/null; then
               echo "版本 $CURRENT_VERSION 已存在，尝试取消发布..."
-              npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+              retry_with_backoff 3 3 npm unpublish $PACKAGE_NAME@$CURRENT_VERSION --force
+              sleep 5
             fi
 
-            sleep 5
-            npm publish --access public
+            retry_with_backoff 5 5 npm publish --access public
             cd ..
           done
   
   update-last-deploy-tag:
-    needs: [detect-changes, build-and-publish]
-    # 当build-and-publish成功运行时，或者当没有变更需要发布时运行
-    if: |
-      always() && 
-      (needs.build-and-publish.result == 'success' || 
-      (needs.detect-changes.result == 'success' && needs.detect-changes.outputs.matrix == '{"package":[]}'))
     runs-on: ubuntu-latest
+    needs:
+      - detect-changes
+      - build-and-publish
+      - build-and-publish-all
+    if: >-
+      ${{
+        always() &&
+        needs.detect-changes.result == 'success' &&
+        contains(fromJson('["success","skipped"]'), needs.build-and-publish.result) &&
+        contains(fromJson('["success","skipped"]'), needs.build-and-publish-all.result)
+      }}
 
     steps:
       - name: Checkout code
