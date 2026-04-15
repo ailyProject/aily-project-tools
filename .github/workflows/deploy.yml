@@ -168,6 +168,34 @@ jobs:
           # 发布
            retry_with_backoff 5 5 npm publish --access public
 
+      - name: Notify cache bump for Registry 2
+        if: steps.check-update-all.outputs.should_skip != 'true'
+        env:
+          NOTIFY_URL: ${{ secrets.NOTIFY_URL_2 }}
+          NOTIFY_TOKEN: ${{ secrets.NOTIFY_TOKEN_2 }}
+        run: |
+          if [ -z "$NOTIFY_URL" ] || [ -z "$NOTIFY_TOKEN" ]; then
+            echo "NOTIFY_URL_2 or NOTIFY_TOKEN_2 not set, skipping."
+            exit 0
+          fi
+          echo "Sending POST request to $NOTIFY_URL"
+          set +e
+          HTTP_STATUS=$(curl -s -o /tmp/notify_response_2.txt -w "%{http_code}" --max-time 30 \
+            -X POST "$NOTIFY_URL" \
+            -H "Authorization: Bearer $NOTIFY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          CURL_EXIT=$?
+          set -e
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "::warning::Notification (Registry 2) request failed (curl exit code $CURL_EXIT)"
+          elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Notification (Registry 2) sent successfully (HTTP $HTTP_STATUS)"
+          else
+            echo "::warning::Notification (Registry 2) failed with HTTP status $HTTP_STATUS"
+            cat /tmp/notify_response_2.txt || true
+          fi
+
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_skip != 'true'
         env:
@@ -207,6 +235,34 @@ jobs:
           
           # 发布
           retry_with_backoff 5 5 npm publish --access public
+
+      - name: Notify cache bump
+        if: steps.check-update-all.outputs.should_skip != 'true'
+        env:
+          NOTIFY_URL: ${{ secrets.NOTIFY_URL }}
+          NOTIFY_TOKEN: ${{ secrets.NOTIFY_TOKEN }}
+        run: |
+          if [ -z "$NOTIFY_URL" ] || [ -z "$NOTIFY_TOKEN" ]; then
+            echo "NOTIFY_URL or NOTIFY_TOKEN not set, skipping."
+            exit 0
+          fi
+          echo "Sending POST request to $NOTIFY_URL"
+          set +e
+          HTTP_STATUS=$(curl -s -o /tmp/notify_response.txt -w "%{http_code}" --max-time 30 \
+            -X POST "$NOTIFY_URL" \
+            -H "Authorization: Bearer $NOTIFY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          CURL_EXIT=$?
+          set -e
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "::warning::Notification request failed (curl exit code $CURL_EXIT)"
+          elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Notification sent successfully (HTTP $HTTP_STATUS)"
+          else
+            echo "::warning::Notification failed with HTTP status $HTTP_STATUS"
+            cat /tmp/notify_response.txt || true
+          fi
   
   build-and-publish-all:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/deploy' }}
@@ -304,6 +360,34 @@ jobs:
             retry_with_backoff 5 5 npm publish --access public
             cd ..
           done
+
+      - name: Notify cache bump for Registry 2
+        if: steps.check-update-all.outputs.should_run == 'true'
+        env:
+          NOTIFY_URL: ${{ secrets.NOTIFY_URL_2 }}
+          NOTIFY_TOKEN: ${{ secrets.NOTIFY_TOKEN_2 }}
+        run: |
+          if [ -z "$NOTIFY_URL" ] || [ -z "$NOTIFY_TOKEN" ]; then
+            echo "NOTIFY_URL_2 or NOTIFY_TOKEN_2 not set, skipping."
+            exit 0
+          fi
+          echo "Sending POST request to $NOTIFY_URL"
+          set +e
+          HTTP_STATUS=$(curl -s -o /tmp/notify_response_2.txt -w "%{http_code}" --max-time 30 \
+            -X POST "$NOTIFY_URL" \
+            -H "Authorization: Bearer $NOTIFY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          CURL_EXIT=$?
+          set -e
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "::warning::Notification (Registry 2) request failed (curl exit code $CURL_EXIT)"
+          elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Notification (Registry 2) sent successfully (HTTP $HTTP_STATUS)"
+          else
+            echo "::warning::Notification (Registry 2) failed with HTTP status $HTTP_STATUS"
+            cat /tmp/notify_response_2.txt || true
+          fi
       
       - name: Publish to NPM
         if: steps.check-update-all.outputs.should_run == 'true'
@@ -363,6 +447,34 @@ jobs:
             retry_with_backoff 5 5 npm publish --access public
             cd ..
           done
+
+      - name: Notify cache bump
+        if: steps.check-update-all.outputs.should_run == 'true'
+        env:
+          NOTIFY_URL: ${{ secrets.NOTIFY_URL }}
+          NOTIFY_TOKEN: ${{ secrets.NOTIFY_TOKEN }}
+        run: |
+          if [ -z "$NOTIFY_URL" ] || [ -z "$NOTIFY_TOKEN" ]; then
+            echo "NOTIFY_URL or NOTIFY_TOKEN not set, skipping."
+            exit 0
+          fi
+          echo "Sending POST request to $NOTIFY_URL"
+          set +e
+          HTTP_STATUS=$(curl -s -o /tmp/notify_response.txt -w "%{http_code}" --max-time 30 \
+            -X POST "$NOTIFY_URL" \
+            -H "Authorization: Bearer $NOTIFY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          CURL_EXIT=$?
+          set -e
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "::warning::Notification request failed (curl exit code $CURL_EXIT)"
+          elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Notification sent successfully (HTTP $HTTP_STATUS)"
+          else
+            echo "::warning::Notification failed with HTTP status $HTTP_STATUS"
+            cat /tmp/notify_response.txt || true
+          fi
   
   update-last-deploy-tag:
     runs-on: ubuntu-latest
